@@ -20,6 +20,7 @@ ISSUE_TRACKER_PATH = BASE_DIR / "issue_tracker.xlsx"
 TAB_ORDER_STATUS = "\uc218\uc8fc \uc9c4\ud589 \uc0c1\uc138"
 TAB_BY_ITEM = "\uc81c\ud488\ubcc4 \uc218\uc8fc \uc9c4\ud589"
 TAB_ISSUES = "\uc0dd\uc0b0 \uc774\uc288 \uad00\ub9ac"
+TAB_PRODUCT_SUMMARY = "\uc81c\ud488 \uc218\uc694 \uc694\uc57d"
 SEARCH_COL = "__search_key__"
 MAX_STATUS_STYLE_ROWS = 2000
 ISSUE_ROW_HEIGHT = 90
@@ -165,6 +166,11 @@ COL_NOTE = "\uc0dd\uc0b0/\ud3ec\uc7a5 \ud2b9\uc774\uc0ac\ud56d"
 COL_RESOLVED = "\ud574\uacb0\uc5ec\ubd80"
 COL_CLOSED_DATE = "\uc885\uacb0\uc77c"
 COL_ISSUE_DATE = "\uc548\uac74\uc0c1\uc815\uc77c"
+COL_PRIORITY = "\uc6b0\uc120\uc21c\uc704"
+COL_AVG_DEMAND = "\ud3c9\uade0\uc218\uc694"
+COL_PO_COUNT = "PO\ud69f\uc218"
+COL_PO_STREAK = "\uc5f0\uc18d PO \ud69f\uc218"
+COL_SHARE = "\uc810\uc720\uc728"
 COL_DUE_PLAN = "\ub0a9\uae30\uc900\uc218(\ucd5c\ucd08\ucd9c\uace0\uacc4\ud68d\uc77c)"
 COL_DUE_SALES = "\ub0a9\uae30\uc900\uc218(\uc601\uc5c5\ucd9c\uace0\uc694\uccad\uc77c)"
 COL_DUE_PLAN_RATE = "\ub0a9\uae30\uc900\uc218\uc728(\ucd5c\ucd08\ucd9c\uace0\uacc4\ud68d\uc77c)"
@@ -480,6 +486,63 @@ def compute_compliance_rate(
     delayed = delayed.reindex(total.index, fill_value=0)
     rate = (total - delayed).div(total).mul(100)
     return rate
+
+
+def max_consecutive_months(months: list[date]) -> int:
+    if not months:
+        return 0
+    uniq = sorted({m for m in months if isinstance(m, date)})
+    if not uniq:
+        return 0
+    best = 1
+    current = 1
+    prev_key = uniq[0].year * 12 + uniq[0].month
+    for current_date in uniq[1:]:
+        cur_key = current_date.year * 12 + current_date.month
+        if cur_key - prev_key == 1:
+            current += 1
+        else:
+            current = 1
+        best = max(best, current)
+        prev_key = cur_key
+    return best
+
+
+def compute_product_priority(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or COL_PRODUCT not in df.columns or COL_ORDER_QTY not in df.columns:
+        return pd.DataFrame(
+            columns=[COL_PRIORITY, COL_PRODUCT, COL_AVG_DEMAND, COL_PO_COUNT, COL_PO_STREAK, COL_SHARE]
+        )
+    df = add_month_date_column(df.copy())
+    df = df[df[COL_PRODUCT].notna()]
+    df = df[df[COL_PRODUCT].astype(str).str.strip().ne("")]
+
+    total_qty = df[COL_ORDER_QTY].sum()
+    grouped = df.groupby(COL_PRODUCT, dropna=False)
+    summary = grouped.agg(
+        _total_qty=(COL_ORDER_QTY, "sum"),
+        _po_count=(COL_WORKNO, "nunique"),
+        _avg_demand=(COL_ORDER_QTY, "mean"),
+    )
+    summary[COL_PO_STREAK] = grouped[COL_MONTH_DATE].apply(
+        lambda values: max_consecutive_months([v for v in values if pd.notna(v)])
+    )
+    if total_qty:
+        summary[COL_SHARE] = (summary["_total_qty"] / total_qty) * 100
+    else:
+        summary[COL_SHARE] = 0.0
+
+    summary = summary.sort_values(
+        by=[COL_SHARE, "_avg_demand", COL_PO_STREAK],
+        ascending=[False, False, False],
+    )
+    summary[COL_PRIORITY] = range(1, len(summary) + 1)
+    summary[COL_AVG_DEMAND] = summary["_avg_demand"]
+    summary[COL_PO_COUNT] = summary["_po_count"]
+    summary = summary[
+        [COL_PRIORITY, COL_PRODUCT, COL_AVG_DEMAND, COL_PO_COUNT, COL_PO_STREAK, COL_SHARE]
+    ]
+    return summary.reset_index(drop=True)
 
 
 def move_note_before_year(df: pd.DataFrame) -> pd.DataFrame:
@@ -1173,7 +1236,7 @@ def main() -> None:
 
     st.caption(source_label)
 
-    tabs = st.tabs([TAB_ORDER_STATUS, TAB_BY_ITEM, TAB_ISSUES])
+    tabs = st.tabs([TAB_ORDER_STATUS, TAB_BY_ITEM, TAB_PRODUCT_SUMMARY, TAB_ISSUES])
     shared_filters: dict | None = None
 
     with tabs[0]:
@@ -1283,6 +1346,40 @@ def main() -> None:
         )
 
     with tabs[2]:
+        st.subheader(TAB_PRODUCT_SUMMARY)
+        df = data["order_status_by_item"].copy()
+        month_range = render_period_controls(df, "product")
+
+        detail_df, _, _ = apply_order_filters(
+            df,
+            month_range,
+            filters=shared_filters or {},
+            show_sidebar=False,
+            apply_month_filter=False,
+        )
+        query = st.text_input(
+            "\ud1b5\ud569 \uac80\uc0c9 (\uc791\uc9c0\ubc88\ud638/\ud488\uba85 \ubc94\uc704\ub85c \uac80\uc0c9)",
+            "",
+            key="product_summary_search",
+        )
+        detail_df = apply_search(detail_df, query)
+
+        if detail_df.empty:
+            st.info("\ud574\ub2f9 \uae30\uac04\uc5d0 \ub370\uc774\ud130\uac00 \uc5c6\uc2b5\ub2c8\ub2e4.")
+        else:
+            summary_df = compute_product_priority(detail_df)
+            numeric_cols = [COL_PRIORITY, COL_AVG_DEMAND, COL_PO_COUNT, COL_PO_STREAK]
+            styled = build_styler(
+                summary_df,
+                numeric_cols,
+                [],
+                status_col=None,
+                percent_cols=[COL_SHARE],
+            )
+            styled = apply_styler_widths(styled, list(summary_df.columns))
+            st.dataframe(styled, use_container_width=True, height=560)
+
+    with tabs[3]:
         st.subheader(TAB_ISSUES)
         issues = data["order_status_by_item"].copy()
         if COL_NOTE not in issues.columns:
