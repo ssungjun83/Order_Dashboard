@@ -515,6 +515,21 @@ def max_consecutive_months(months: list[date]) -> int:
     return best
 
 
+def month_sequence(start: date, end: date) -> list[date]:
+    if start is None or end is None or start > end:
+        return []
+    cursor = date(start.year, start.month, 1)
+    last = date(end.year, end.month, 1)
+    months: list[date] = []
+    while cursor <= last:
+        months.append(cursor)
+        if cursor.month == 12:
+            cursor = date(cursor.year + 1, 1, 1)
+        else:
+            cursor = date(cursor.year, cursor.month + 1, 1)
+    return months
+
+
 def compute_product_priority(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty or COL_PRODUCT not in df.columns or COL_ORDER_QTY not in df.columns:
         return pd.DataFrame(
@@ -574,11 +589,20 @@ def max_consecutive_flags(flags: list[bool]) -> int:
     return best
 
 
-def compute_product_monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
+def compute_product_monthly_summary(
+    df: pd.DataFrame, month_range: tuple[date, date] | None
+) -> pd.DataFrame:
+    month_list: list[date] = []
+    if month_range:
+        month_list = month_sequence(month_range[0], month_range[1])
+
     if df.empty or COL_PRODUCT not in df.columns or COL_ORDER_QTY not in df.columns:
+        if not month_list:
+            return pd.DataFrame()
+        month_labels = [m.strftime("%Y-%m") for m in month_list]
         columns = (
-            [COL_YEAR, COL_PRIORITY, COL_ROW_LABEL]
-            + [f"{m}\uc6d4" for m in range(1, 13)]
+            [COL_PRIORITY, COL_ROW_LABEL]
+            + month_labels
             + [
                 COL_TOTAL_ORDERS,
                 COL_CONSECUTIVE_ORDERS,
@@ -595,33 +619,37 @@ def compute_product_monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame()
 
-    df[COL_YEAR] = df[COL_MONTH_DATE].apply(
-        lambda d: d.year if pd.notna(d) else None
+    if not month_list:
+        min_month = df[COL_MONTH_DATE].min()
+        max_month = df[COL_MONTH_DATE].max()
+        if pd.isna(min_month) or pd.isna(max_month):
+            return pd.DataFrame()
+        month_list = month_sequence(min_month, max_month)
+    if not month_list:
+        return pd.DataFrame()
+
+    month_labels = [m.strftime("%Y-%m") for m in month_list]
+    df[COL_MONTH_DATE] = df[COL_MONTH_DATE].apply(
+        lambda d: date(d.year, d.month, 1)
     )
-    df[COL_MONTH_NUM] = df[COL_MONTH_DATE].apply(
-        lambda d: d.month if pd.notna(d) else None
-    )
-    month_cols = list(range(1, 13))
     pivot = (
         df.pivot_table(
-            index=[COL_YEAR, COL_PRODUCT],
-            columns=COL_MONTH_NUM,
+            index=COL_PRODUCT,
+            columns=COL_MONTH_DATE,
             values=COL_ORDER_QTY,
             aggfunc="sum",
             fill_value=0,
         )
-        .reindex(columns=month_cols, fill_value=0)
+        .reindex(columns=month_list, fill_value=0)
         .copy()
     )
     total_orders = (pivot > 0).sum(axis=1)
     consecutive = pivot.apply(
         lambda row: max_consecutive_flags([val > 0 for val in row.tolist()]), axis=1
     )
-    weighted = (
-        (total_orders / 1000)
-        + (consecutive * 5)
-        + (pivot[7:13].sum(axis=1) * 2 / 1000)
-    ).round(0)
+    recent_cols = month_list[-6:]
+    recent_sum = pivot[recent_cols].sum(axis=1) if recent_cols else 0
+    weighted = ((total_orders / 1000) + (consecutive * 5) + (recent_sum * 2 / 1000)).round(0)
     total_qty = pivot.sum(axis=1)
     avg_demand = total_qty.div(consecutive.replace(0, pd.NA)).fillna(0)
 
@@ -632,21 +660,22 @@ def compute_product_monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
     result[COL_AVG_DEMAND] = avg_demand
 
     result = result.sort_values(
-        by=[COL_YEAR, COL_WEIGHTED_SCORE, COL_TOTAL_ORDERS, COL_AVG_DEMAND],
-        ascending=[True, False, False, False],
+        by=[COL_WEIGHTED_SCORE, COL_TOTAL_ORDERS, COL_AVG_DEMAND],
+        ascending=[False, False, False],
     )
     result = result.reset_index().rename(columns={COL_PRODUCT: COL_ROW_LABEL})
-    result[COL_PRIORITY] = (
-        result.groupby(COL_YEAR, sort=False).cumcount() + 1
-    )
-    result[COL_YEAR] = result[COL_YEAR].astype("Int64").astype(str)
-    month_labels = [f"{m}\uc6d4" for m in range(1, 13)]
-    rename_map = {m: label for m, label in zip(month_cols, month_labels)}
+    result[COL_PRIORITY] = range(1, len(result) + 1)
+    rename_map = {m: label for m, label in zip(month_list, month_labels)}
     result = result.rename(columns=rename_map)
     result = result[
-        [COL_YEAR, COL_PRIORITY, COL_ROW_LABEL]
+        [COL_PRIORITY, COL_ROW_LABEL]
         + month_labels
-        + [COL_TOTAL_ORDERS, COL_CONSECUTIVE_ORDERS, COL_WEIGHTED_SCORE, COL_AVG_DEMAND]
+        + [
+            COL_TOTAL_ORDERS,
+            COL_CONSECUTIVE_ORDERS,
+            COL_WEIGHTED_SCORE,
+            COL_AVG_DEMAND,
+        ]
     ]
     return result.reset_index(drop=True)
 
@@ -1512,20 +1541,21 @@ def main() -> None:
         )
         detail_df = apply_search(detail_df, query)
 
-        monthly_df = compute_product_monthly_summary(detail_df)
+        monthly_df = compute_product_monthly_summary(detail_df, month_range)
         if monthly_df.empty:
             st.info("\ud574\ub2f9 \uae30\uac04\uc5d0 \ub370\uc774\ud130\uac00 \uc5c6\uc2b5\ub2c8\ub2e4.")
         else:
-            numeric_cols = (
-                [COL_PRIORITY]
-                + [f"{m}\uc6d4" for m in range(1, 13)]
-                + [
-                    COL_TOTAL_ORDERS,
-                    COL_CONSECUTIVE_ORDERS,
-                    COL_WEIGHTED_SCORE,
-                    COL_AVG_DEMAND,
-                ]
-            )
+            month_cols = [
+                col
+                for col in monthly_df.columns
+                if isinstance(col, str) and re.match(r"^\d{4}-\d{2}$", col)
+            ]
+            numeric_cols = [COL_PRIORITY] + month_cols + [
+                COL_TOTAL_ORDERS,
+                COL_CONSECUTIVE_ORDERS,
+                COL_WEIGHTED_SCORE,
+                COL_AVG_DEMAND,
+            ]
             styled = build_styler(monthly_df, numeric_cols, [], status_col=None)
             styled = apply_styler_widths(styled, list(monthly_df.columns))
             st.dataframe(styled, use_container_width=True, height=650)
