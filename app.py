@@ -605,7 +605,7 @@ def compute_product_monthly_summary(
             return pd.DataFrame()
         month_labels = [m.strftime("%Y-%m") for m in month_list]
         columns = (
-            [COL_PRIORITY, COL_ROW_LABEL]
+            [COL_PRIORITY, COL_CUSTOMER, COL_ROW_LABEL]
             + month_labels
             + [
                 COL_TOTAL_ORDERS,
@@ -619,6 +619,8 @@ def compute_product_monthly_summary(
     df = add_month_date_column(df.copy())
     df = df[df[COL_PRODUCT].notna()]
     df = df[df[COL_PRODUCT].astype(str).str.strip().ne("")]
+    if COL_CUSTOMER in df.columns:
+        df = df[df[COL_CUSTOMER].notna()]
     df = df[df[COL_MONTH_DATE].notna()]
     if df.empty:
         return pd.DataFrame()
@@ -638,7 +640,7 @@ def compute_product_monthly_summary(
     )
     pivot = (
         df.pivot_table(
-            index=COL_PRODUCT,
+            index=[COL_CUSTOMER, COL_PRODUCT],
             columns=COL_MONTH_DATE,
             values=COL_ORDER_QTY,
             aggfunc="sum",
@@ -672,7 +674,7 @@ def compute_product_monthly_summary(
     rename_map = {m: label for m, label in zip(month_list, month_labels)}
     result = result.rename(columns=rename_map)
     result = result[
-        [COL_PRIORITY, COL_ROW_LABEL]
+        [COL_PRIORITY, COL_CUSTOMER, COL_ROW_LABEL]
         + month_labels
         + [
             COL_TOTAL_ORDERS,
