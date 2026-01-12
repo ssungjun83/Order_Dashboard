@@ -594,7 +594,11 @@ def compute_product_monthly_summary(
 ) -> pd.DataFrame:
     month_list: list[date] = []
     if month_range:
-        month_list = month_sequence(month_range[0], month_range[1])
+        start, end = month_range
+        if start.year != end.year:
+            start = date(start.year, 1, 1)
+            end = date(end.year, 12, 1)
+        month_list = month_sequence(start, end)
 
     if df.empty or COL_PRODUCT not in df.columns or COL_ORDER_QTY not in df.columns:
         if not month_list:
