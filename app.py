@@ -1500,7 +1500,7 @@ def main() -> None:
         else:
             numeric_cols = (
                 [COL_PRIORITY]
-                + [f\"{m}\\uc6d4\" for m in range(1, 13)]
+                + [f"{m}\uc6d4" for m in range(1, 13)]
                 + [COL_TOTAL_ORDERS, COL_CONSECUTIVE_ORDERS, COL_WEIGHTED_SCORE, COL_AVG_DEMAND]
             )
             styled = build_styler(monthly_df, numeric_cols, [], status_col=None)
