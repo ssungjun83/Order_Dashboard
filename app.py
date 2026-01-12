@@ -539,6 +539,7 @@ def compute_product_priority(df: pd.DataFrame) -> pd.DataFrame:
     summary[COL_PRIORITY] = range(1, len(summary) + 1)
     summary[COL_AVG_DEMAND] = summary["_avg_demand"]
     summary[COL_PO_COUNT] = summary["_po_count"]
+    summary = summary.reset_index()
     summary = summary[
         [COL_PRIORITY, COL_PRODUCT, COL_AVG_DEMAND, COL_PO_COUNT, COL_PO_STREAK, COL_SHARE]
     ]
