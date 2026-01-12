@@ -168,6 +168,7 @@ COL_CLOSED_DATE = "\uc885\uacb0\uc77c"
 COL_ISSUE_DATE = "\uc548\uac74\uc0c1\uc815\uc77c"
 COL_PRIORITY = "\uc6b0\uc120\uc21c\uc704"
 COL_AVG_DEMAND = "\ud3c9\uade0\uc218\uc694"
+COL_TOTAL_QTY = "\ucd1d \uc624\ub354\uc218\ub7c9"
 COL_PO_COUNT = "PO\ud69f\uc218"
 COL_PO_STREAK = "\uc5f0\uc18d PO \ud69f\uc218"
 COL_SHARE = "\uc810\uc720\uc728"
@@ -538,10 +539,19 @@ def compute_product_priority(df: pd.DataFrame) -> pd.DataFrame:
     )
     summary[COL_PRIORITY] = range(1, len(summary) + 1)
     summary[COL_AVG_DEMAND] = summary["_avg_demand"]
+    summary[COL_TOTAL_QTY] = summary["_total_qty"]
     summary[COL_PO_COUNT] = summary["_po_count"]
     summary = summary.reset_index()
     summary = summary[
-        [COL_PRIORITY, COL_PRODUCT, COL_AVG_DEMAND, COL_PO_COUNT, COL_PO_STREAK, COL_SHARE]
+        [
+            COL_PRIORITY,
+            COL_PRODUCT,
+            COL_AVG_DEMAND,
+            COL_TOTAL_QTY,
+            COL_PO_COUNT,
+            COL_PO_STREAK,
+            COL_SHARE,
+        ]
     ]
     return summary.reset_index(drop=True)
 
@@ -1369,7 +1379,13 @@ def main() -> None:
             st.info("\ud574\ub2f9 \uae30\uac04\uc5d0 \ub370\uc774\ud130\uac00 \uc5c6\uc2b5\ub2c8\ub2e4.")
         else:
             summary_df = compute_product_priority(detail_df)
-            numeric_cols = [COL_PRIORITY, COL_AVG_DEMAND, COL_PO_COUNT, COL_PO_STREAK]
+            numeric_cols = [
+                COL_PRIORITY,
+                COL_AVG_DEMAND,
+                COL_TOTAL_QTY,
+                COL_PO_COUNT,
+                COL_PO_STREAK,
+            ]
             styled = build_styler(
                 summary_df,
                 numeric_cols,
