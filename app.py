@@ -493,12 +493,6 @@ def move_note_before_year(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def replace_capa_delay(df: pd.DataFrame) -> pd.DataFrame:
-    if COL_DUE_SALES not in df.columns:
-        return df
-    df = df.copy()
-    df[COL_DUE_SALES] = df[COL_DUE_SALES].replace(
-        {"\uc9c0\uc5f0": "CAPA\ubd80\uc871 \uc9c0\uc5f0"}
-    )
     return df
 
 
